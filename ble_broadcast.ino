@@ -5,6 +5,7 @@
 #include "OneWireTerm.h"
 #include <DHT.h>
 #include <Adafruit_BMP085.h>
+#include <avr/sleep.h>
 /**
  Put the nRF8001 setup in the RAM of the nRF8001.
  */
@@ -39,10 +40,9 @@ static OneWire term (7);
 static DHT dht (2, DHT22);
 static Adafruit_BMP085 bmp;
 static byte measure = 0;
+static bool setup_required = false;
 
-#define ANALOG_RED   5
-#define ANALOG_BLUE  3
-#define ANALOG_GREEN 6
+#define ADV_INTERVAL 16384/5
 
 /* Define how assert should function in the BLE library */
 void
@@ -102,31 +102,6 @@ clipToPWM (int value, int begin, int end, int pwmMax = 255)
   return pwm;
 }
 
-void
-visualizeTempAndHumidity ()
-{
-  //temperature = -5000;
-  //humidity = 3000;
-
-  int redPWM = clipToPWM (temperature, 2100, 2500, 255);
-  int bluePWM = clipToPWM (temperature, 2100, 1800, 255);
-  int greenPWM = clipToPWM (humidity, 3000, 6000, 255);
-  Serial.println (F("RGB PWMs"));
-
-  analogWrite (ANALOG_BLUE, bluePWM);
-  analogWrite (ANALOG_GREEN, greenPWM);
-  analogWrite (ANALOG_RED, redPWM);
-
-  Serial.print (redPWM);
-  Serial.print (' ');
-  Serial.print (greenPWM);
-  Serial.print (' ');
-  Serial.println (bluePWM);
-//  Serial.print("test=");
-//  Serial.println(test);
-//  test+=5;
-}
-
 /*** FUNC
  Name:       Timer1 ISR
  Function:   Handles the Timer1-overflow interrupt
@@ -136,34 +111,46 @@ ISR(TIMER1_OVF_vect)
   static int count = 0;
   Serial.print (F("Callback..."));
   Serial.println (count);
-  if (count % 8 == 0)
-    {
-      measure = 0xff;
 
+  switch (count++ % 3)
+    {
+    case 0:
+      measure = TEMPERATURE;
+      break;
+    case 1:
+      measure = PRESSURE;
+      break;
+    case 2:
+      measure = HUMIDITY;
+      break;
     }
-  count++;
+
   TCNT1H = TIMEOUT;    // Approx 4000 ms - Reload
   TCNT1L = 0;
   TIFR1 = 0x00;    // timer1 int flag reg: clear timer overflow flag
+
 }
 ;
 
 void
+disableACDC ()
+{
+  ADCSRA = ADCSRA & B01111111;
+  ACSR = B10000000;
+}
+
+void
 setup (void)
 {
+  disableACDC ();
   Timer1stop ();
+
   Serial.begin (115200);
 
   dht.begin ();
   bmp.begin ();
 
   //RGB
-  pinMode (ANALOG_BLUE, OUTPUT);
-  pinMode (ANALOG_GREEN, OUTPUT);
-  pinMode (ANALOG_RED, OUTPUT);
-  analogWrite (ANALOG_BLUE, 255);
-  analogWrite (ANALOG_GREEN, 255);
-  analogWrite (ANALOG_RED, 255);
 
   //Wait until the serial port is available (useful only for the Leonardo)
   //As the Leonardo board is not reseted every time you open the Serial Monitor
@@ -194,7 +181,7 @@ setup (void)
    */
   aci_state.aci_pins.board_name = BOARD_DEFAULT; //See board.h for details
   aci_state.aci_pins.reqn_pin = 9;
-  aci_state.aci_pins.rdyn_pin = 8;
+  aci_state.aci_pins.rdyn_pin = 3;
   aci_state.aci_pins.mosi_pin = MOSI;
   aci_state.aci_pins.miso_pin = MISO;
   aci_state.aci_pins.sck_pin = SCK;
@@ -206,81 +193,115 @@ setup (void)
   aci_state.aci_pins.active_pin = UNUSED;
   aci_state.aci_pins.optional_chip_sel_pin = UNUSED;
 
-  aci_state.aci_pins.interface_is_interrupt = false;
-  aci_state.aci_pins.interrupt_number = 1;
+  aci_state.aci_pins.interface_is_interrupt = true;
+  aci_state.aci_pins.interrupt_number = digitalPinToInterrupt(3);
 
   //We reset the nRF8001 here by toggling the RESET line connected to the nRF8001
   //and initialize the data structures required to setup the nRF8001
   lib_aci_init (&aci_state, false);
-  Timer1start ();
+
 }
 
 void
-loop ()
+measurment_loop ()
 {
-  static bool setup_required = false;
-
-  if (measure & MEASURE_PRESSURE)
+  bool hasCredits = aci_state.data_credit_available > 0;
+  if (measure)
     {
-      Serial.println (F("Measuring Pressure"));
+      Serial.print (F("Credits available :"));
+      Serial.println (aci_state.data_credit_available);
 
-      pressure = bmp.readPressure ()*10;
-      Serial.println (pressure);
-      lib_aci_set_local_data (&aci_state, PIPE_TEMSTATION_PRESSURE_SET, (uint8_t*) &pressure, sizeof(pressure));
-      if (lib_aci_is_pipe_available (&aci_state, PIPE_TEMSTATION_PRESSURE_TX))
+      if (!hasCredits)
 	{
-	  lib_aci_send_data (PIPE_TEMSTATION_PRESSURE_TX, (uint8_t*) &pressure, sizeof(pressure));
-
-
+	  Serial.println (F("Not enough credits -skipping"));
 	}
     }
-  if (measure & MEASURE_HUMIDITY)
+  if (measure & PRESSURE)
+    {
+      Serial.println (F("Measuring Pressure"));
+      pressure = bmp.readPressure () * 10;
+      Serial.println (pressure);
+      lib_aci_set_local_data (&aci_state, PIPE_TEMSTATION_PRESSURE_SET, (uint8_t*) (&pressure), sizeof(pressure));
+      if (lib_aci_is_pipe_available (&aci_state, PIPE_TEMSTATION_PRESSURE_TX))
+	{
+	  if (hasCredits && !lib_aci_send_data (PIPE_TEMSTATION_PRESSURE_TX, (uint8_t*) (&pressure), sizeof(pressure)))
+	    {
+	      Serial.println (F("Data Not Send"));
+	      return;
+	    }
+	  else
+	    {
+	      aci_state.data_credit_available--;
+	    }
+	}
+      measure &= ~PRESSURE;
+      return;
+    }
+  if (measure & HUMIDITY)
     {
       Serial.println (F("Measuring Humidity"));
       humidity = (dht.readHumidity () * 100.0);
       Serial.println (humidity, 10);
-
-      lib_aci_set_local_data (&aci_state, PIPE_TEMSTATION_HUMIDITY_SET, (uint8_t*) &humidity, sizeof(humidity));
-
+      lib_aci_set_local_data (&aci_state, PIPE_TEMSTATION_HUMIDITY_SET, (uint8_t*) (&humidity), sizeof(humidity));
       if (lib_aci_is_pipe_available (&aci_state, PIPE_TEMSTATION_HUMIDITY_TX))
 	{
-	  lib_aci_send_data (PIPE_TEMSTATION_HUMIDITY_TX, (uint8_t*) &humidity, sizeof(humidity));
+	  if (hasCredits && !lib_aci_send_data (PIPE_TEMSTATION_HUMIDITY_TX, (uint8_t*) (&humidity), sizeof(humidity)))
+	    {
+	      Serial.println (F("Data Not Send"));
+	      return;
+	    }
+	  else
+	    {
+	      aci_state.data_credit_available--;
+	    }
 	}
-    }
 
-  if (measure & MEASURE_TEMPERATURE)
+      measure &= ~HUMIDITY;
+      return;
+    }
+  if (measure & TEMPERATURE)
     {
       Serial.println (F("Measuring Temperature"));
       temperatureDS = readTemp (term);
       temperatureDHT = (dht.readTemperature () * 100.0);
-
       Serial.println (F("T DS, T DHT"));
       Serial.println (temperatureDS, 10);
       Serial.println (temperatureDHT, 10);
-      temperature = temperatureDHT;
-      lib_aci_set_local_data (&aci_state, PIPE_TEMSTATION_TEMPERATURE_SET, (uint8_t*) &temperature,
+      temperature = temperatureDS;
+      lib_aci_set_local_data (&aci_state, PIPE_TEMSTATION_TEMPERATURE_SET, (uint8_t*) (&temperature),
 			      sizeof(temperature));
-      lib_aci_set_local_data (&aci_state, PIPE_TEMSTATION_HUMIDITY_SET, (uint8_t*) &humidity, sizeof(humidity));
       if (lib_aci_is_pipe_available (&aci_state, PIPE_TEMSTATION_TEMPERATURE_TX))
 	{
-	  lib_aci_send_data (PIPE_TEMSTATION_TEMPERATURE_TX, (uint8_t*) &temperature, sizeof(temperature));
+	  if (hasCredits
+	      && !lib_aci_send_data (PIPE_TEMSTATION_TEMPERATURE_TX, (uint8_t*) (&temperature), sizeof(temperature)))
+	    {
+	      Serial.println (F("Data Not Send"));
+	      return;
+	    }
+	  else
+	    {
+	      aci_state.data_credit_available--;
+	    }
+
 	}
-
-    }
-  if (measure & (MEASURE_HUMIDITY | MEASURE_TEMPERATURE))
-    {
-      visualizeTempAndHumidity ();
+      measure &= ~TEMPERATURE;
+      return;
     }
 
-  measure = 0;
+}
 
+void
+ble_loop ()
+{
   // We enter the if statement only when there is a ACI event available to be processed
   if (lib_aci_event_get (&aci_state, &aci_data))
     {
-      aci_evt_t * aci_evt;
+      aci_evt_t* aci_evt;
       aci_evt = &aci_data.evt;
+      Serial.println(aci_evt->evt_opcode);
       switch (aci_evt->evt_opcode)
 	{
+
 	/**
 	 As soon as you reset the nRF8001 you will get an ACI Device Started Event
 	 */
@@ -296,23 +317,19 @@ loop ()
 		Serial.println (F("Evt Device Started: Setup"));
 		setup_required = true;
 		break;
-
 	      case ACI_DEVICE_STANDBY:
 		Serial.println (F("Evt Device Started: Standby"));
-
-		lib_aci_connect (0, 0x100);
+		lib_aci_connect (0, ADV_INTERVAL);
 		Serial.println (F("waiting for connection started"));
 		//See ACI Broadcast in the data sheet of the nRF8001
 		//While broadcasting (non_connectable) interval of 100ms is the minimum possible
 		//To stop the broadcasting before the timeout use the
 		//lib_aci_radio_reset to soft reset the radio
 		//See ACI RadioReset in the datasheet of the nRF8001
-
 		break;
 	      }
 	  }
 	  break; //ACI Device Started Event
-
 	case ACI_EVT_CMD_RSP:
 	  //If an ACI command response event comes with an error -> stop
 	  if (ACI_STATUS_SUCCESS != aci_evt->params.cmd_rsp.cmd_status)
@@ -325,19 +342,16 @@ loop ()
 	      Serial.println (F("Evt Cmd respone: Error. Arduino is in an while(1); loop"));
 	      while (1)
 		;
+
 	    }
 	  break;
-
 	case ACI_EVT_CONNECTED:
 	  Serial.println (F("Evt Connected"));
-
+	  Timer1start ();
 	  break;
-
 	case ACI_EVT_PIPE_STATUS:
 	  Serial.println (F("Evt Pipe Status"));
-
 	  break;
-
 	case ACI_EVT_DISCONNECTED:
 	  if (ACI_STATUS_ERROR_ADVT_TIMEOUT == aci_evt->params.disconnected.aci_status)
 	    {
@@ -347,17 +361,16 @@ loop ()
 	    {
 	      Serial.println (F("Evt Disconnected. Link Loss"));
 	    }
-	  //Timer1stop();
-	  lib_aci_connect (0, 0x100);
+	  Timer1stop ();
+	  measure = 0;
+	  lib_aci_connect (0, ADV_INTERVAL);
 	  break;
-
 	case ACI_EVT_DATA_RECEIVED:
 	  Serial.print (F("Data received on Pipe #: 0x"));
 	  Serial.println (aci_evt->params.data_received.rx_data.pipe_number, HEX);
 	  Serial.print (F("Length of data received: 0x"));
 	  Serial.println (aci_evt->len - 2, HEX);
 	  break;
-
 	case ACI_EVT_HW_ERROR:
 	  Serial.println (F("HW error: "));
 	  Serial.println (aci_evt->params.hw_error.line_num, DEC);
@@ -366,6 +379,11 @@ loop ()
 	      Serial.write (aci_evt->params.hw_error.file_name[counter]); //uint8_t file_name[20];
 	    }
 	  Serial.println ();
+	  break;
+	case ACI_EVT_DATA_CREDIT:
+	  Serial.print (F("Data credit returned: "));
+	  Serial.println (aci_evt->params.data_credit.credit);
+	  aci_state.data_credit_available += aci_evt->params.data_credit.credit;
 	  break;
 	}
     }
@@ -376,7 +394,6 @@ loop ()
       // Arduino can go to sleep now
       // Wakeup from sleep from the RDYN line
     }
-
   /* setup_required is set to true when the device starts up and enters setup mode.
    * It indicates that do_aci_setup() should be called. The flag should be cleared if
    * do_aci_setup() returns ACI_STATUS_TRANSACTION_COMPLETE.
@@ -388,6 +405,27 @@ loop ()
 	  setup_required = false;
 	}
     }
+}
+void
+sleepIfPossible ()
+{
+  if (measure == 0)
+    {
+      //Serial.println("Sleep..");
+      //cli();
 
+      set_sleep_mode(SLEEP_MODE_IDLE);
+      sleep_mode();
+
+
+    }
+}
+
+void
+loop ()
+{
+  ble_loop ();
+  measurment_loop ();
+  sleepIfPossible();
 }
 
