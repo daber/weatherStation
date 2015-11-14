@@ -4,7 +4,7 @@
     <SetupId>0</SetupId>
     <Device>nRF8001_Dx</Device>
     <Service Type="local" PrimaryService="true">
-        <Name>TemStation</Name>
+        <Name>Weather Station</Name>
         <Uuid>181a</Uuid>
         <Characteristic>
             <Name>Temperature</Name>
@@ -113,20 +113,20 @@
         </Characteristic>
     </Service>
     <Gapsettings>
-        <Name>Temp</Name>
+        <Name>Weather Station</Name>
         <DeviceNameWriteLength>0</DeviceNameWriteLength>
         <LocalPipeOnDeviceName>false</LocalPipeOnDeviceName>
         <DeviceNameShortLength>1</DeviceNameShortLength>
         <Apperance>0000</Apperance>
         <SecurityLevel>0</SecurityLevel>
         <AuthenticationReq>0</AuthenticationReq>
-        <IoCapabilities>0</IoCapabilities>
+        <IoCapabilities>1</IoCapabilities>
         <BondTimeout>600</BondTimeout>
         <SecurityRequestDelay>10</SecurityRequestDelay>
         <MinimumKeySize>7</MinimumKeySize>
         <MaximumKeySize>16</MaximumKeySize>
         <AdvertisingDataBondedBitmap>0</AdvertisingDataBondedBitmap>
-        <AdvertisingDataGeneralBitmap>5a</AdvertisingDataGeneralBitmap>
+        <AdvertisingDataGeneralBitmap>1a</AdvertisingDataGeneralBitmap>
         <AdvertisingDataBrodcastBitmap>5a</AdvertisingDataBrodcastBitmap>
         <AdvertisingDataBondedScanResponseBitmap>0</AdvertisingDataBondedScanResponseBitmap>
         <AdvertisingDataGeneralScanResponseBitmap>0</AdvertisingDataGeneralScanResponseBitmap>
@@ -144,7 +144,7 @@
         <TimeoutMultipler>65535</TimeoutMultipler>
         <AddServiceUpdateCharacteristic>false</AddServiceUpdateCharacteristic>
         <AddServiceUpdateCharacteristicPipe>false</AddServiceUpdateCharacteristicPipe>
-        <TimingChangeDelay>5</TimingChangeDelay>
+        <TimingChangeDelay>0</TimingChangeDelay>
         <ServiceToAdvertise>
             <Uuid>181a</Uuid>
         </ServiceToAdvertise>
@@ -162,10 +162,10 @@
     <Hardwaresettings>
         <Clocksource>1</Clocksource>
         <ClockAccuracy>1</ClockAccuracy>
-        <InitialTxPower>3</InitialTxPower>
+        <InitialTxPower>2</InitialTxPower>
         <HfClkSource>0</HfClkSource>
         <DcDcConverter>0</DcDcConverter>
-        <ActiveSignalModeIndex>0</ActiveSignalModeIndex>
+        <ActiveSignalModeIndex>1</ActiveSignalModeIndex>
         <ActiveSignalToTickDistance>0</ActiveSignalToTickDistance>
         <DynamicWindowLimitingEnabled>false</DynamicWindowLimitingEnabled>
     </Hardwaresettings>

@@ -42,7 +42,7 @@ static Adafruit_BMP085 bmp;
 static byte measure = 0;
 static bool setup_required = false;
 
-#define ADV_INTERVAL 16384/5
+#define ADV_INTERVAL 8000
 
 /* Define how assert should function in the BLE library */
 void
@@ -109,9 +109,6 @@ clipToPWM (int value, int begin, int end, int pwmMax = 255)
 ISR(TIMER1_OVF_vect)
 {
   static int count = 0;
-  Serial.print (F("Callback..."));
-  Serial.println (count);
-
   switch (count++ % 3)
     {
     case 0:
@@ -221,10 +218,10 @@ measurment_loop ()
       Serial.println (F("Measuring Pressure"));
       pressure = bmp.readPressure () * 10;
       Serial.println (pressure);
-      lib_aci_set_local_data (&aci_state, PIPE_TEMSTATION_PRESSURE_SET, (uint8_t*) (&pressure), sizeof(pressure));
-      if (lib_aci_is_pipe_available (&aci_state, PIPE_TEMSTATION_PRESSURE_TX))
+      lib_aci_set_local_data (&aci_state, PIPE_WEATHER_STATION_PRESSURE_SET, (uint8_t*) (&pressure), sizeof(pressure));
+      if (lib_aci_is_pipe_available (&aci_state, PIPE_WEATHER_STATION_PRESSURE_TX))
 	{
-	  if (hasCredits && !lib_aci_send_data (PIPE_TEMSTATION_PRESSURE_TX, (uint8_t*) (&pressure), sizeof(pressure)))
+	  if (hasCredits && !lib_aci_send_data (PIPE_WEATHER_STATION_PRESSURE_TX, (uint8_t*) (&pressure), sizeof(pressure)))
 	    {
 	      Serial.println (F("Data Not Send"));
 	      return;
@@ -242,10 +239,10 @@ measurment_loop ()
       Serial.println (F("Measuring Humidity"));
       humidity = (dht.readHumidity () * 100.0);
       Serial.println (humidity, 10);
-      lib_aci_set_local_data (&aci_state, PIPE_TEMSTATION_HUMIDITY_SET, (uint8_t*) (&humidity), sizeof(humidity));
-      if (lib_aci_is_pipe_available (&aci_state, PIPE_TEMSTATION_HUMIDITY_TX))
+      lib_aci_set_local_data (&aci_state, PIPE_WEATHER_STATION_HUMIDITY_SET, (uint8_t*) (&humidity), sizeof(humidity));
+      if (lib_aci_is_pipe_available (&aci_state, PIPE_WEATHER_STATION_HUMIDITY_TX))
 	{
-	  if (hasCredits && !lib_aci_send_data (PIPE_TEMSTATION_HUMIDITY_TX, (uint8_t*) (&humidity), sizeof(humidity)))
+	  if (hasCredits && !lib_aci_send_data (PIPE_WEATHER_STATION_HUMIDITY_TX, (uint8_t*) (&humidity), sizeof(humidity)))
 	    {
 	      Serial.println (F("Data Not Send"));
 	      return;
@@ -268,12 +265,12 @@ measurment_loop ()
       Serial.println (temperatureDS, 10);
       Serial.println (temperatureDHT, 10);
       temperature = temperatureDS;
-      lib_aci_set_local_data (&aci_state, PIPE_TEMSTATION_TEMPERATURE_SET, (uint8_t*) (&temperature),
+      lib_aci_set_local_data (&aci_state, PIPE_WEATHER_STATION_TEMPERATURE_SET, (uint8_t*) (&temperature),
 			      sizeof(temperature));
-      if (lib_aci_is_pipe_available (&aci_state, PIPE_TEMSTATION_TEMPERATURE_TX))
+      if (lib_aci_is_pipe_available (&aci_state, PIPE_WEATHER_STATION_TEMPERATURE_TX))
 	{
 	  if (hasCredits
-	      && !lib_aci_send_data (PIPE_TEMSTATION_TEMPERATURE_TX, (uint8_t*) (&temperature), sizeof(temperature)))
+	      && !lib_aci_send_data (PIPE_WEATHER_STATION_TEMPERATURE_TX, (uint8_t*) (&temperature), sizeof(temperature)))
 	    {
 	      Serial.println (F("Data Not Send"));
 	      return;
@@ -411,13 +408,8 @@ sleepIfPossible ()
 {
   if (measure == 0)
     {
-      //Serial.println("Sleep..");
-      //cli();
-
       set_sleep_mode(SLEEP_MODE_IDLE);
       sleep_mode();
-
-
     }
 }
 
